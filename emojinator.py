@@ -67,7 +67,7 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    if message.content.lower().startswith("!boop") and message.channel.id == 697503616587792415:
+    if message.content.lower().startswith("!boop emojinator") and message.channel.id == 697503616587792415:
         await client.get_channel(697503616587792415).send("I've been booped! Back shortly...")
         await client.logout()
 
@@ -77,15 +77,20 @@ async def on_message(message):
         else:
             await message.channel.send("No 'Manage Emoji' permission")
 
+    if message.content.lower() == "!invite":
+        await message.channel.send(discord.utils.oauth_url(client.user.id, permissions=discord.Permissions(1073743872)))
+
 
 @client.event
 async def on_ready():
     print("Logged in as {} ({})".format(client.user.name, client.user.id))
-    await client.get_channel(697503616587792415).send("Back online. Last update: {}\n<{}/commit/{}>".format(
-        check_output(["git", "log", "-1", "--pretty=%B"]).strip().decode("utf-8"),
-        check_output(["git", "remote", "get-url", "origin"]).strip().decode("utf-8"),
-        check_output(["git", "log", "-1", "--pretty=%h"]).strip().decode("utf-8")
-    ))
+    log_channel = client.get_channel(697503616587792415)
+    if log_channel:
+        await log_channel.send("Back online. Last update: {}\n<{}/commit/{}>".format(
+            check_output(["git", "log", "-1", "--pretty=%B"]).strip().decode("utf-8"),
+            check_output(["git", "remote", "get-url", "origin"]).strip().decode("utf-8"),
+            check_output(["git", "log", "-1", "--pretty=%h"]).strip().decode("utf-8")
+        ))
     if client.user.bot:
         print(discord.utils.oauth_url(client.user.id, permissions=discord.Permissions(1073743872)))
 
