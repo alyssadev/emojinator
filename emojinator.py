@@ -3,12 +3,24 @@ import discord
 from io import BytesIO
 import aiohttp
 from subprocess import check_output
+import asyncio
+from time import time
 
 client = discord.Client()
 
 __emoji_help = """Usage:
 !emoji import <custom emoji to import> <another custom emoji> ... - emoji will be imported using the name from the other server
 !emoji image <name> - attach an image and specify the name to import. image must be smaller than 256kb"""
+
+last_status_update = 0
+
+async def playing_update():
+    global last_status_update
+    if time() - last_status_update < 30:
+        return
+    last_status_update = time()
+    emoji_sum = sum(len(g.emojis) for g in client.guilds)
+    await client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="{} emojis on {} servers".format(emoji_sum, len(client.guilds))))
 
 def get_emoji_count(guild):
     emojis = guild.emojis
@@ -66,10 +78,11 @@ async def emoji(message):
 async def on_message(message):
     if message.author == client.user:
         return
+    await playing_update()
 
-    if message.content.lower().startswith("!boop emojinator") and message.channel.id == 697503616587792415:
-        await client.get_channel(697503616587792415).send("I've been booped! Back shortly...")
-        await client.logout()
+#    if message.content.lower().startswith("!boop emojinator") and message.channel.id == 697503616587792415:
+#        await client.get_channel(697503616587792415).send("I've been booped! Back shortly...")
+#        await client.logout()
 
     if message.content.lower().startswith("!emoji"):
         if message.author.permissions_in(message.channel).manage_emojis:
@@ -84,15 +97,16 @@ async def on_message(message):
 @client.event
 async def on_ready():
     print("Logged in as {} ({})".format(client.user.name, client.user.id))
-    log_channel = client.get_channel(697503616587792415)
-    if log_channel:
-        await log_channel.send("Back online. Last update: {}\n<{}/commit/{}>".format(
-            check_output(["git", "log", "-1", "--pretty=%B"]).strip().decode("utf-8"),
-            check_output(["git", "remote", "get-url", "origin"]).strip().decode("utf-8"),
-            check_output(["git", "log", "-1", "--pretty=%h"]).strip().decode("utf-8")
-        ))
+#    log_channel = client.get_channel(697503616587792415)
+#    if log_channel:
+#        await log_channel.send("Back online. Last update: {}\n<{}/commit/{}>".format(
+#            check_output(["git", "log", "-1", "--pretty=%B"]).strip().decode("utf-8"),
+#            check_output(["git", "remote", "get-url", "origin"]).strip().decode("utf-8"),
+#            check_output(["git", "log", "-1", "--pretty=%h"]).strip().decode("utf-8")
+#        ))
     if client.user.bot:
         print(discord.utils.oauth_url(client.user.id, permissions=discord.Permissions(1073743872)))
+    await playing_update()
 
 if __name__ == "__main__":
     with open(".bottoken") as f:
