@@ -33,6 +33,17 @@ def get_emoji_count(guild):
     else:
         return "{0}/250 normal, {1}/250 animated".format(len(normal), len(animated))
 
+async def get_bytes_from_url(url, max_size=256*1024):
+    if max_size:
+        async with aiohttp.ClientSession() as session:
+            async with session.head(url) as resp:
+                if int(resp.headers["Content-Length"]) > max_size:
+                    return False, "Image at specified url is too large (max 256kB)"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            img_bytes = await resp.read()
+            return True, img_bytes
+
 async def emoji(message):
     content = message.content[6:].strip()
     try:
@@ -49,33 +60,26 @@ async def emoji(message):
         return
     if cmd == "url":
         name, url = args
-        async with aiohttp.ClientSession() as session:
-            async with session.head(url) as resp:
-                if int(resp.headers["Content-Length"]) > 256*1024:
-                    await message.channel.send("Image at specified url is too large (max 256kB)")
-                    return
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                img_bytes = await resp.read()
+        success, resp = await get_bytes_from_url(url)
+        if not success:
+            await message.channel.send(resp)
+            return
         try:
-            emoji = await message.guild.create_custom_emoji(name=name, image=img_bytes, reason=f"Added by {message.author.name}#{message.author.discriminator}")
+            emoji = await message.guild.create_custom_emoji(name=name, image=resp, reason=f"Added by {message.author.name}#{message.author.discriminator}")
         except discord.errors.HTTPException as e:
             await message.channel.send("!emoji failed: {}".format(e.text))
             return
         await message.channel.send(get_emoji_count(message.guild) + "\n" + str(emoji))
-    if cmd == "search":
-        pass
-    if cmd == "dl":
-        pass
     if cmd == "import":
         out = []
         for emoji_inp in args:
             animated,shortname,emoji_id = emoji_inp[1:-1].split(":")
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"https://cdn.discordapp.com/emojis/{emoji_id}." + ("gif" if animated else "png")) as resp:
-                    img_bytes = await resp.read()
+            success, resp = await get_bytes_from_url(f"https://cdn.discordapp.com/emojis/{emoji_id}." + ("gif" if animated else "png"))
+            if not success:
+                await message.channel.send(resp)
+                continue
             try:
-                emoji = await message.guild.create_custom_emoji(name=shortname, image=img_bytes, reason=f"Added by {message.author.name}#{message.author.discriminator}")
+                emoji = await message.guild.create_custom_emoji(name=shortname, image=resp, reason=f"Added by {message.author.name}#{message.author.discriminator}")
             except discord.errors.HTTPException as e:
                 await message.channel.send("!emoji failed on {}: {}".format(emoji_inp[1:-1], e.text.split("\n")[1]))
                 continue
