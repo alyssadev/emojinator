@@ -37,7 +37,7 @@ async def emoji(message):
     content = message.content[6:].strip()
     try:
         cmd, *args = content.split()
-        if cmd not in ["import", "image"]:
+        if cmd not in ["import", "image", "url", "search", "dl"]:
             content = None
     except ValueError:
         content = None
@@ -47,6 +47,26 @@ async def emoji(message):
         except discord.Forbidden:
             await message.channel.send(__emoji_help)
         return
+    if cmd == "url":
+        name, url = args
+        async with aiohttp.ClientSession() as session:
+            async with session.head(url) as resp:
+                if int(resp.headers["Content-Length"]) > 256*1024:
+                    await message.channel.send("Image at specified url is too large (max 256kB)")
+                    return
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                img_bytes = await resp.read()
+        try:
+            emoji = await message.guild.create_custom_emoji(name=name, image=img_bytes, reason=f"Added by {message.author.name}#{message.author.discriminator}")
+        except discord.errors.HTTPException as e:
+            await message.channel.send("!emoji failed: {}".format(e.text))
+            return
+        await message.channel.send(get_emoji_count(message.guild) + "\n" + str(emoji))
+    if cmd == "search":
+        pass
+    if cmd == "dl":
+        pass
     if cmd == "import":
         out = []
         for emoji_inp in args:
