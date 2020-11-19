@@ -5,14 +5,20 @@ import aiohttp
 from subprocess import check_output
 import asyncio
 from time import time
+from json import load
+from random import choice
 
 client = discord.Client()
 
 __emoji_help = """Usage:
 !emoji import <custom emoji to import> <another custom emoji> ... - emoji will be imported using the name from the other server
-!emoji image <name> - attach an image and specify the name to import. image must be smaller than 256kb"""
+!emoji image <name> - attach an image and specify the name to import. image must be smaller than 256kb
+!emoji url <name> <url> - specify an emoji name and image url to import. image must be smaller than 256kb
+!emoji geturl <custom emoji> <another custom emoji> ... - emoji urls will be listed to the user for further use
+!emoji mashup - get a random mashup from @emojimashupbot"""
 
 last_status_update = 0
+
 
 async def playing_update():
     global last_status_update
@@ -48,7 +54,7 @@ async def emoji(message):
     content = message.content[6:].strip()
     try:
         cmd, *args = content.split()
-        if cmd not in ["import", "image", "url", "search", "dl"]:
+        if cmd not in ["import", "image", "url", "geturl", "mashup"]:
             content = None
     except ValueError:
         content = None
@@ -58,6 +64,42 @@ async def emoji(message):
         except discord.Forbidden:
             await message.channel.send(__emoji_help)
         return
+    if cmd == "import":
+        out = []
+        for emoji_inp in args:
+            animated,shortname,emoji_id = emoji_inp[1:-1].split(":")
+            success, resp = await get_bytes_from_url(f"https://cdn.discordapp.com/emojis/{emoji_id}." + ("gif" if animated else "png"))
+            if not success:
+                print(repr(resp))
+                await message.channel.send(resp)
+                continue
+            try:
+                emoji = await message.guild.create_custom_emoji(name=shortname, image=resp, reason=f"Added by {message.author.name}#{message.author.discriminator}")
+            except discord.errors.HTTPException as e:
+                err = "!emoji failed on {}: {}".format(emoji_inp[1:-1], e.text.split("\n")[1])
+                await message.channel.send(err)
+                print(err)
+                continue
+            except discord.errors.InvalidArgument as e:
+                err = "!emoji failed on {}: Invalid argument: {}".format(emoji_inp[1:-1], e.text.replace("\n", ""))
+                await message.channel.send(err)
+                print(err)
+                continue
+            out.append(str(emoji))
+        response = get_emoji_count(message.guild) + "\n" + " ".join(out)
+        print(repr(response))
+        await message.channel.send(response)
+    elif cmd == "image":
+        out = []
+        for arg,attachment in zip(args, message.attachments):
+            img_bytes = await attachment.read()
+            try:
+                emoji = await message.guild.create_custom_emoji(name=arg, image=img_bytes, reason=f"Added by {message.author.name}#{message.author.discriminator}")
+            except discord.errors.HTTPException as e:
+                await message.channel.send("!emoji failed on {}: {}".format(arg, e.text.split("\n")[1]))
+                continue
+            out.append(str(emoji))
+        await message.channel.send(get_emoji_count(message.guild) + "\n" + " ".join(out))
     if cmd == "url":
         name, url = args
         success, resp = await get_bytes_from_url(url)
@@ -70,37 +112,23 @@ async def emoji(message):
             await message.channel.send("!emoji failed: {}".format(e.text))
             return
         await message.channel.send(get_emoji_count(message.guild) + "\n" + str(emoji))
-    if cmd == "import":
+    elif cmd == "geturl":
         out = []
         for emoji_inp in args:
             animated,shortname,emoji_id = emoji_inp[1:-1].split(":")
-            success, resp = await get_bytes_from_url(f"https://cdn.discordapp.com/emojis/{emoji_id}." + ("gif" if animated else "png"))
-            if not success:
-                await message.channel.send(resp)
-                continue
-            try:
-                emoji = await message.guild.create_custom_emoji(name=shortname, image=resp, reason=f"Added by {message.author.name}#{message.author.discriminator}")
-            except discord.errors.HTTPException as e:
-                await message.channel.send("!emoji failed on {}: {}".format(emoji_inp[1:-1], e.text.split("\n")[1]))
-                continue
-            out.append(str(emoji))
-        await message.channel.send(get_emoji_count(message.guild) + "\n" + " ".join(out))
-    elif cmd == "image":
-        out = []
-        for arg,attachment in zip(args, message.attachments):
-            img_bytes = await attachment.read()
-            try:
-                emoji = await message.guild.create_custom_emoji(name=arg, image=img_bytes, reason=f"Added by {message.author.name}#{message.author.discriminator}")
-            except discord.errors.HTTPException as e:
-                await message.channel.send("!emoji failed on {}: {}".format(arg, e.text.split("\n")[1]))
-                continue
-            out.append(str(emoji))
-        await message.channel.send(get_emoji_count(message.guild) + "\n" + " ".join(out))
+            out.append(f"<https://cdn.discordapp.com/emojis/{emoji_id}." + ("gif" if animated else "png") + ">")
+        await message.channel.send("\n".join(out))
+    elif cmd == "mashup":
+        with open("emojimashup.json") as f:
+            mashup_data = load(f)
+        mashup = choice(mashup_data)
+        await asyncio.sleep(1)
+        await message.channel.send("{1} = https://pbs.twimg.com/media/{0}.jpg".format(*mashup))
 
 
 @client.event
 async def on_message(message):
-    if message.author == client.user:
+    if message.author.bot:
         return
     await playing_update()
 
@@ -109,25 +137,19 @@ async def on_message(message):
 #        await client.logout()
 
     if message.content.lower().startswith("!emoji"):
-        if message.author.permissions_in(message.channel).manage_emojis:
-            await emoji(message)
+        print("{}({}) {}#{}: {}".format(message.guild.name, message.guild.id, message.author.name, message.author.discriminator, repr(message.content)))
+        if message.content.lower().startswith("!emoji mashup") or message.author.permissions_in(message.channel).manage_emojis:
+            async with message.channel.typing():
+                await emoji(message)
         else:
             await message.channel.send("No 'Manage Emoji' permission")
 
     if message.content.lower() == "!invite":
         await message.channel.send(discord.utils.oauth_url(client.user.id, permissions=discord.Permissions(1073743872)))
 
-
 @client.event
 async def on_ready():
     print("Logged in as {} ({})".format(client.user.name, client.user.id))
-#    log_channel = client.get_channel(697503616587792415)
-#    if log_channel:
-#        await log_channel.send("Back online. Last update: {}\n<{}/commit/{}>".format(
-#            check_output(["git", "log", "-1", "--pretty=%B"]).strip().decode("utf-8"),
-#            check_output(["git", "remote", "get-url", "origin"]).strip().decode("utf-8"),
-#            check_output(["git", "log", "-1", "--pretty=%h"]).strip().decode("utf-8")
-#        ))
     if client.user.bot:
         print(discord.utils.oauth_url(client.user.id, permissions=discord.Permissions(1073743872)))
     await playing_update()
